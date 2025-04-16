@@ -146,6 +146,68 @@ SQL Server Management Studio에서 실행 계획을 생성하는 방법에는 �
 > &#128221; 실행 계획을 검토하면 **key lookup**이 사라지고 비클러스터형 인덱스만 사용하고 있음을 알 수 있습니다.
 
 ---
+네, 해당 `CREATE NONCLUSTERED INDEX` 문의 구조와 여기서 핵심 개념인 **Covering Index**에 대해 자세히 설명드리겠습니다.
+
+**1. CREATE NONCLUSTERED INDEX 문의 구조 분석**
+
+제공된 T-SQL 코드는 다음과 같습니다.
+
+```sql
+CREATE NONCLUSTERED INDEX [IX_SalesOrderDetail_ProductID] -- 1. 인덱스 타입 및 이름
+ON [Sales].[SalesOrderDetail]                             -- 2. 대상 테이블
+([ProductID],[ModifiedDate])                               -- 3. 인덱스 키 열 (Index Key Columns)
+INCLUDE ([CarrierTrackingNumber],[OrderQty],[UnitPrice])   -- 4. 포함 열 (Included Columns)
+WITH (DROP_EXISTING = on);                                 -- 5. 옵션
+GO
+```
+
+각 부분을 나누어 설명하면 다음과 같습니다.
+
+1.  **`CREATE NONCLUSTERED INDEX [IX_SalesOrderDetail_ProductID]`**:
+    *   `CREATE NONCLUSTERED INDEX`: **비클러스터형 인덱스(Nonclustered Index)**를 생성하겠다는 명령어입니다. 비클러스터형 인덱스는 데이터 자체의 물리적 순서를 변경하지 않고, 별도의 구조(B-tree)에 인덱스 키와 해당 데이터 행을 가리키는 포인터(Row Locator)를 저장합니다. 테이블당 여러 개 생성할 수 있습니다.
+    *   `[IX_SalesOrderDetail_ProductID]`: 생성될 인덱스의 이름입니다. 일반적으로 `IX_테이블명_주요컬럼명` 형태로 명명하여 식별하기 쉽게 합니다.
+
+2.  **`ON [Sales].[SalesOrderDetail]`**:
+    *   이 인덱스가 생성될 **대상 테이블**을 지정합니다. 여기서는 `Sales` 스키마의 `SalesOrderDetail` 테이블입니다.
+
+3.  **`([ProductID],[ModifiedDate])`**:
+    *   이것은 인덱스의 **키 열(Key Columns)**을 정의하는 부분입니다.
+    *   인덱스 구조(B-tree)는 이 키 열들의 값을 기준으로 정렬되어 만들어집니다. SQL Server는 이 키 열 값을 사용하여 데이터를 빠르게 검색(Seek)할 수 있습니다.
+    *   키 열의 순서(`ProductID` 다음 `ModifiedDate`)도 중요합니다. `ProductID`로 검색하거나, `ProductID`와 `ModifiedDate` 둘 다로 검색할 때 효율적입니다.
+
+4.  **`INCLUDE ([CarrierTrackingNumber],[OrderQty],[UnitPrice])`**:
+    *   이것은 **포함 열(Included Columns)**을 정의하는 부분입니다.
+    *   포함 열은 인덱스 키의 일부는 아니지만, 인덱스 구조의 **가장 하위 레벨(Leaf Level)**에 키 값과 함께 저장됩니다.
+    *   포함 열은 인덱스의 정렬 순서에는 영향을 주지 않습니다.
+    *   이 부분은 **Covering Index**를 만드는 데 핵심적인 역할을 합니다. (아래에서 자세히 설명)
+
+5.  **`WITH (DROP_EXISTING = on)`**:
+    *   인덱스 생성 옵션입니다.
+    *   `DROP_EXISTING = ON`: 만약 동일한 이름(`IX_SalesOrderDetail_ProductID`)의 인덱스가 이미 존재한다면, 기존 인덱스를 **삭제(Drop)**하고 **새로운 정의로 다시 생성(Create)**하라는 옵션입니다. 이 옵션은 기존 인덱스를 수정할 때 `DROP INDEX`와 `CREATE INDEX`를 별도로 실행하는 것보다 효율적일 수 있으며, 특정 조건에서는 온라인 작업이 가능할 수도 있습니다. 실습에서는 기존 인덱스를 수정하기 위해 이 옵션을 사용했습니다.
+
+**2. Covering Index 란?**
+
+*   **정의:** 어떤 쿼리를 실행하는 데 필요한 **모든 컬럼**이 **인덱스 자체에 포함되어 있는** 인덱스를 **Covering Index**라고 합니다. 여기서 '모든 컬럼'이란 `SELECT` 목록, `WHERE` 절, `JOIN` 조건, `GROUP BY`, `ORDER BY` 등 쿼리 처리에 필요한 모든 컬럼을 의미합니다.
+*   **필요성 (Key Lookup 제거):**
+    *   만약 비클러스터형 인덱스에 쿼리가 필요로 하는 모든 컬럼이 없다면, SQL Server는 다음과 같은 단계를 거칩니다.
+        1.  **Index Seek/Scan:** 비클러스터형 인덱스를 사용하여 `WHERE` 조건에 맞는 행의 위치(포인터)를 찾습니다.
+        2.  **Key Lookup (또는 RID Lookup):** 1단계에서 찾은 각 행의 포인터를 사용하여, **실제 데이터가 저장된 테이블(클러스터형 인덱스 또는 Heap 테이블)에 다시 접근**하여 인덱스에 없던 나머지 컬럼(예: `SELECT` 목록의 다른 컬럼) 값을 가져옵니다.
+    *   이 두 번째 단계인 **Key Lookup**은 특히 많은 행을 처리해야 할 때 상당한 성능 부하를 유발할 수 있습니다. 각 행마다 테이블 데이터 페이지에 랜덤하게 접근해야 할 수 있기 때문입니다.
+*   **Covering Index의 장점:**
+    *   쿼리에 필요한 모든 컬럼이 인덱스에 존재하므로, SQL Server는 **인덱스 페이지만 읽어서 쿼리 전체를 처리**할 수 있습니다.
+    *   별도로 테이블 데이터 페이지에 접근하는 **Key Lookup 단계가 필요 없어집니다.**
+    *   결과적으로 I/O 비용이 줄어들고 쿼리 성능이 크게 향상됩니다.
+*   **이번 실습 예시에서의 적용:**
+    *   원래 쿼리는 `SELECT [SalesOrderID] ,[CarrierTrackingNumber] ,[OrderQty] ,[ProductID], [UnitPrice] ,[ModifiedDate]` 와 같이 여러 컬럼을 요구했습니다.
+    *   수정 전 인덱스 `IX_SalesOrderDetail_ProductID`는 키 컬럼으로 `[ProductID]`만 가지고 있었습니다. 따라서 `WHERE` 절의 `ProductID` 조건을 만족하는 행을 찾은 후, 나머지 컬럼(`CarrierTrackingNumber`, `OrderQty`, `UnitPrice`, `ModifiedDate` 등)을 가져오기 위해 **Key Lookup**이 발생했습니다.
+    *   수정된 인덱스는 `WHERE` 절에 사용된 `ProductID`와 `ModifiedDate`를 **키 컬럼(Key Columns)**으로 가지고, `SELECT` 목록에 필요한 나머지 컬럼(`CarrierTrackingNumber`, `OrderQty`, `UnitPrice`)을 **포함 열(Included Columns)**로 가집니다. (참고: `SalesOrderID`는 일반적으로 클러스터형 인덱스의 키이므로 비클러스터형 인덱스의 리프 레벨에 자동으로 포함됩니다.)
+    *   결과적으로 수정된 인덱스는 쿼리에 필요한 모든 컬럼을 포함하게 되어 **Covering Index**가 되었고, SQL Server는 이 인덱스만 읽어서 쿼리를 완료할 수 있게 되어 **Key Lookup**이 사라지고 성능이 향상되었습니다.
+
+**요약:**
+
+제공된 `CREATE INDEX` 문은 `ProductID`와 `ModifiedDate`를 기준으로 정렬되고, 추가적으로 `CarrierTrackingNumber`, `OrderQty`, `UnitPrice` 정보를 리프 레벨에 저장하는 비클러스터형 인덱스를 생성(또는 재성성)합니다. 이렇게 설계된 인덱스는 특정 쿼리가 요구하는 모든 컬럼을 포함하여 **Covering Index** 역할을 함으로써, 불필요한 **Key Lookup** 작업을 제거하고 쿼리 성능을 최적화하는 것을 목표로 합니다.
+
+---
 
 **5단계: Query Store를 사용하여 회귀(Regression) 감지 및 처리**
 
