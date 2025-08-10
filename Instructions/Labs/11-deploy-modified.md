@@ -17,7 +17,6 @@
 ### **용어 및 개념 설명**
 
 *   **Azure Resource Manager (ARM) template**: Azure 리소스를 선언적으로 정의하는 JSON 파일입니다. 인프라를 코드로(Infrastructure as Code, IaC) 관리할 수 있게 해주어, 리소스 배포를 자동화하고, 일관성 있게 유지하며, 반복 가능하게 만듭니다.
-*   **Hands-on (핸즈온)**: "직접 해보는 실습"을 의미합니다. 단순히 이론을 배우는 것을 넘어, 사용자가 직접 Azure Portal이나 코드를 조작하여 기술을 체득하는 과정을 말합니다. 이 실습에서는 ARM 템플릿을 직접 수정하는 것이 핵심 핸즈온 활동입니다.
 *   **SKU (Stock Keeping Unit)**: Azure에서는 리소스의 가격 등급(Pricing Tier)과 성능, 용량 등을 정의하는 단위를 의미합니다. 예를 들어, SQL Database의 SKU는 `Basic`, `Standard`, `Premium` 등으로 나뉘며, 각각 다른 성능과 비용을 가집니다.
 *   **Firewall rule (방화벽 규칙)**: 특정 IP 주소나 IP 주소 범위에서 Azure SQL Server로 들어오는 네트워크 트래픽을 허용하거나 차단하는 보안 규칙입니다. 데이터베이스를 무단 액세스로부터 보호하는 첫 번째 방어선입니다.
 
